@@ -1,0 +1,144 @@
+import type { BlogArticle, BlogCategory } from '@/components/blog/blog-types'
+import type { LexicalNode } from '@/components/blog/rich-text'
+
+/**
+ * Server-side client for the Payload CMS REST API.
+ *
+ * PAYLOAD_API_URL          base URL of the CMS (default http://localhost:3001)
+ * PAYLOAD_TENANT_ID        only show content of this tenant (default: all tenants)
+ * PAYLOAD_LOCALE           content locale, e.g. "en" or "bg" (default: the CMS default)
+ * PAYLOAD_FALLBACK_LOCALE  locale used for fields missing in PAYLOAD_LOCALE
+ */
+const API_URL = (process.env.PAYLOAD_API_URL ?? 'http://localhost:3001').replace(/\/$/, '')
+const TENANT_ID = process.env.PAYLOAD_TENANT_ID
+const LOCALE = process.env.PAYLOAD_LOCALE
+const FALLBACK_LOCALE = process.env.PAYLOAD_FALLBACK_LOCALE
+
+/** Seconds before cached CMS responses are refreshed. */
+const REVALIDATE_SECONDS = 60
+const WORDS_PER_MINUTE = 200
+const SUMMARY_LENGTH = 180
+/** Shown for posts that have no main image in the CMS. */
+const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1635169852185-37f90ac07189'
+
+type PayloadList<T> = { docs: T[] }
+
+type PayloadMedia = {
+  url?: string | null
+  alt?: string | null
+}
+
+type PayloadCategory = {
+  id: number
+  slug?: string | null
+  title?: string | null
+}
+
+type PayloadPost = {
+  id: number
+  slug?: string | null
+  title?: string | null
+  mainImage?: PayloadMedia | number | null
+  content?: { root?: LexicalNode } | null
+  meta?: { title?: string | null; description?: string | null } | null
+  categories?: (PayloadCategory | number)[] | null
+  createdAt: string
+}
+
+export type BlogPost = BlogArticle & {
+  content?: LexicalNode
+  metaTitle?: string
+}
+
+async function payloadFetch<T>(path: string, params: Record<string, string>): Promise<T> {
+  const query = new URLSearchParams(params)
+  if (TENANT_ID) query.set('where[tenant][equals]', TENANT_ID)
+  if (LOCALE) query.set('locale', LOCALE)
+  if (FALLBACK_LOCALE) query.set('fallback-locale', FALLBACK_LOCALE)
+
+  const url = `${API_URL}/api/${path}?${query}`
+  let response: Response
+  try {
+    response = await fetch(url, { next: { revalidate: REVALIDATE_SECONDS } })
+  } catch (cause) {
+    throw new Error(`Could not reach Payload CMS at ${API_URL}. Is it running?`, { cause })
+  }
+  if (!response.ok) {
+    throw new Error(`Payload CMS request failed with ${response.status}: ${url}`)
+  }
+  return response.json() as Promise<T>
+}
+
+function mediaUrl(url: string) {
+  return url.startsWith('http') ? url : `${API_URL}${url}`
+}
+
+function plainText(node: LexicalNode | undefined): string {
+  if (!node) return ''
+  if (typeof node.text === 'string') return node.text
+  return (node.children ?? []).map(plainText).join(node.type === 'root' ? ' ' : '')
+}
+
+function truncate(text: string, length: number) {
+  if (text.length <= length) return text
+  return `${text.slice(0, text.lastIndexOf(' ', length)).replace(/[\s.,;:!?]+$/, '')}…`
+}
+
+function toBlogPost(post: PayloadPost): BlogPost | null {
+  // Posts without a slug or without a title in the requested locale can't be shown.
+  if (!post.slug || !post.title) return null
+
+  const text = plainText(post.content?.root).replace(/\s+/g, ' ').trim()
+  const words = text ? text.split(' ').length : 0
+  const categories = (post.categories ?? []).filter((item): item is PayloadCategory => typeof item === 'object')
+  const image = typeof post.mainImage === 'object' ? post.mainImage : null
+
+  return {
+    id: post.slug,
+    title: post.title,
+    categoryId: categories[0]?.slug ?? '',
+    summary: post.meta?.description || truncate(text, SUMMARY_LENGTH),
+    tags: categories.map((category) => category.slug).filter((slug): slug is string => Boolean(slug)),
+    readTime: `${Math.max(1, Math.round(words / WORDS_PER_MINUTE))} min read`,
+    date: new Date(post.createdAt).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      timeZone: 'UTC',
+    }),
+    image: image?.url ? mediaUrl(image.url) : FALLBACK_IMAGE,
+    imageAlt: (image?.url && image.alt) || post.title,
+    content: post.content?.root,
+    metaTitle: post.meta?.title || undefined,
+  }
+}
+
+/** All published posts, newest first. */
+export async function getPosts(): Promise<BlogPost[]> {
+  const data = await payloadFetch<PayloadList<PayloadPost>>('blog', {
+    depth: '1',
+    limit: '100',
+    sort: '-createdAt',
+  })
+  return data.docs.map(toBlogPost).filter((post) => post !== null)
+}
+
+export async function getPostBySlug(slug: string): Promise<BlogPost | null> {
+  const data = await payloadFetch<PayloadList<PayloadPost>>('blog', {
+    depth: '1',
+    limit: '1',
+    'where[slug][equals]': slug,
+  })
+  const post = data.docs[0]
+  return post ? toBlogPost(post) : null
+}
+
+export async function getCategories(): Promise<BlogCategory[]> {
+  const data = await payloadFetch<PayloadList<PayloadCategory>>('blog-categories', {
+    depth: '0',
+    limit: '100',
+  })
+  return data.docs.flatMap((category) =>
+    category.slug ? [{ id: category.slug, label: category.title || category.slug }] : [],
+  )
+}
