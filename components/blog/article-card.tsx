@@ -2,6 +2,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { ArrowUpRight, Clock3 } from 'lucide-react'
 import type { BlogArticle } from '@/components/blog/blog-types'
+import { postPath } from '@/lib/routes'
 
 export function ArticleCard({ article, featured = false }: { article: BlogArticle; featured?: boolean }) {
   return (
@@ -28,7 +29,7 @@ export function ArticleCard({ article, featured = false }: { article: BlogArticl
         </div>
         <div className="mt-2 flex items-start justify-between gap-3">
           <h3 className="text-lg font-semibold leading-snug tracking-[-0.02em] text-slate-900">
-            <Link className="after:absolute after:inset-0 after:content-['']" href={`/${article.id}`}>{article.title}</Link>
+            <Link className="after:absolute after:inset-0 after:content-['']" href={postPath(article)}>{article.title}</Link>
           </h3>
           <ArrowUpRight aria-hidden="true" className="mt-1 size-4 shrink-0 text-slate-400 transition group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-sky-600" />
         </div>

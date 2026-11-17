@@ -1,21 +1,30 @@
-import { BlogHome } from '@/components/blog/blog-home'
-import type { BlogHomeData } from '@/components/blog/blog-types'
-import blogData from '@/lib/blog-data.json'
+import InfraTrendsHome, { type Story } from '@/components/infra-trends-home'
 import { getCategories, getPosts } from '@/lib/payload'
+import { postPath } from '@/lib/routes'
 
 export default async function Page() {
-  const [articles, categories] = await Promise.all([getPosts(), getCategories()])
+  let stories: Story[] = []
 
-  // Hero copy and brand list stay local; stories and categories come from Payload CMS.
-  const data: BlogHomeData = {
-    hero: blogData.hero,
-    trustedBy: blogData.trustedBy,
-    categories: [{ id: 'all', label: 'All' }, ...categories],
-    spotlightArticleId: articles[0]?.id ?? '',
-    // The rich text body is only needed on the article page.
-    articles: articles.map((article) => ({ ...article, content: undefined, metaTitle: undefined })),
+  try {
+    const [posts, allCategories] = await Promise.all([getPosts(), getCategories()])
+    const labels = new Map(allCategories.map((category) => [category.id, category.label]))
+
+    // Only the fields the home page shows are sent to the browser, not the article bodies.
+    stories = posts.map((post) => ({
+      slug: post.id,
+      href: postPath(post),
+      category: labels.get(post.categoryId) ?? '',
+      title: post.title,
+      summary: post.summary,
+      date: post.date,
+      readTime: post.readTime,
+      image: post.image ?? '',
+      imageAlt: post.imageAlt,
+    }))
+  } catch (error) {
+    // The home page still renders (with an empty state) while the CMS is unreachable.
+    console.error(error)
   }
 
-  return <BlogHome data={data} />
+  return <InfraTrendsHome stories={stories} />
 }
-

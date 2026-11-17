@@ -4,12 +4,16 @@ import type { LexicalNode } from '@/components/blog/rich-text'
 /**
  * Server-side client for the Payload CMS REST API.
  *
- * PAYLOAD_API_URL          base URL of the CMS (default http://localhost:3001)
+ * PAYLOAD_API_URL          base URL of the CMS (default http://localhost:3000)
+ * PAYLOAD_API_BACKUP_URL   base URL tried when PAYLOAD_API_URL is unreachable or errors (optional)
  * PAYLOAD_TENANT_ID        only show content of this tenant (default: all tenants)
  * PAYLOAD_LOCALE           content locale, e.g. "en" or "bg" (default: the CMS default)
  * PAYLOAD_FALLBACK_LOCALE  locale used for fields missing in PAYLOAD_LOCALE
  */
-const API_URL = (process.env.PAYLOAD_API_URL ?? 'http://localhost:3001').replace(/\/$/, '')
+const API_URL = (process.env.PAYLOAD_API_URL ?? 'http://localhost:3000').replace(/\/$/, '')
+const BACKUP_API_URL = process.env.PAYLOAD_API_BACKUP_URL?.replace(/\/$/, '')
+/** CMS base URLs in the order they are tried. */
+const API_URLS = BACKUP_API_URL && BACKUP_API_URL !== API_URL ? [API_URL, BACKUP_API_URL] : [API_URL]
 const TENANT_ID = process.env.PAYLOAD_TENANT_ID
 const LOCALE = process.env.PAYLOAD_LOCALE
 const FALLBACK_LOCALE = process.env.PAYLOAD_FALLBACK_LOCALE
@@ -18,8 +22,17 @@ const FALLBACK_LOCALE = process.env.PAYLOAD_FALLBACK_LOCALE
 const REVALIDATE_SECONDS = 60
 const WORDS_PER_MINUTE = 200
 const SUMMARY_LENGTH = 180
-/** Shown for posts that have no main image in the CMS. */
-const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1635169852185-37f90ac07189'
+/** Shown for posts that have no main image in the CMS; picked by post id so neighbours differ. */
+const FALLBACK_IMAGES = [
+  '1518005020951-eccb494ad742',
+  '1485827404703-89b55fcc595e',
+  '1486406146926-c627a92ad1ab',
+  '1487958449943-2429e8be8625',
+  '1473968512647-3e447244af8f',
+  '1511818966892-d7d671e672a2',
+  '1503387762-592deb58ef4e',
+  '1541888946425-d81bb19240f5',
+].map((id) => `https://images.unsplash.com/photo-${id}?auto=format&fit=crop&w=1600&q=75`)
 
 type PayloadList<T> = { docs: T[] }
 
@@ -32,6 +45,7 @@ type PayloadCategory = {
   id: number
   slug?: string | null
   title?: string | null
+  description?: string | null
 }
 
 type PayloadPost = {
@@ -50,27 +64,31 @@ export type BlogPost = BlogArticle & {
   metaTitle?: string
 }
 
-async function payloadFetch<T>(path: string, params: Record<string, string>): Promise<T> {
+/** A CMS response together with the base URL that served it (relative media URLs resolve against it). */
+type PayloadResult<T> = { data: T; baseUrl: string }
+
+async function payloadFetch<T>(path: string, params: Record<string, string>): Promise<PayloadResult<T>> {
   const query = new URLSearchParams(params)
   if (TENANT_ID) query.set('where[tenant][equals]', TENANT_ID)
   if (LOCALE) query.set('locale', LOCALE)
   if (FALLBACK_LOCALE) query.set('fallback-locale', FALLBACK_LOCALE)
 
-  const url = `${API_URL}/api/${path}?${query}`
-  let response: Response
-  try {
-    response = await fetch(url, { next: { revalidate: REVALIDATE_SECONDS } })
-  } catch (cause) {
-    throw new Error(`Could not reach Payload CMS at ${API_URL}. Is it running?`, { cause })
+  const failures: string[] = []
+  for (const baseUrl of API_URLS) {
+    const url = `${baseUrl}/api/${path}?${query}`
+    try {
+      const response = await fetch(url, { next: { revalidate: REVALIDATE_SECONDS } })
+      if (response.ok) return { data: (await response.json()) as T, baseUrl }
+      failures.push(`${url} responded with ${response.status}`)
+    } catch (cause) {
+      failures.push(`${baseUrl} is unreachable (${cause instanceof Error ? cause.message : String(cause)})`)
+    }
   }
-  if (!response.ok) {
-    throw new Error(`Payload CMS request failed with ${response.status}: ${url}`)
-  }
-  return response.json() as Promise<T>
+  throw new Error(`Payload CMS request failed: ${failures.join('; ')}`)
 }
 
-function mediaUrl(url: string) {
-  return url.startsWith('http') ? url : `${API_URL}${url}`
+function mediaUrl(url: string, baseUrl: string) {
+  return url.startsWith('http') ? url : `${baseUrl}${url}`
 }
 
 function plainText(node: LexicalNode | undefined): string {
@@ -84,7 +102,7 @@ function truncate(text: string, length: number) {
   return `${text.slice(0, text.lastIndexOf(' ', length)).replace(/[\s.,;:!?]+$/, '')}…`
 }
 
-function toBlogPost(post: PayloadPost): BlogPost | null {
+function toBlogPost(post: PayloadPost, baseUrl: string): BlogPost | null {
   // Posts without a slug or without a title in the requested locale can't be shown.
   if (!post.slug || !post.title) return null
 
@@ -106,39 +124,47 @@ function toBlogPost(post: PayloadPost): BlogPost | null {
       day: 'numeric',
       timeZone: 'UTC',
     }),
-    image: image?.url ? mediaUrl(image.url) : FALLBACK_IMAGE,
+    image: image?.url ? mediaUrl(image.url, baseUrl) : FALLBACK_IMAGES[post.id % FALLBACK_IMAGES.length],
     imageAlt: (image?.url && image.alt) || post.title,
     content: post.content?.root,
     metaTitle: post.meta?.title || undefined,
   }
 }
 
+/** Readable label for a category that has no title in the requested locale. */
+function titleFromSlug(slug: string) {
+  const words = slug.replace(/-/g, ' ')
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
 /** All published posts, newest first. */
 export async function getPosts(): Promise<BlogPost[]> {
-  const data = await payloadFetch<PayloadList<PayloadPost>>('blog', {
+  const { data, baseUrl } = await payloadFetch<PayloadList<PayloadPost>>('blog', {
     depth: '1',
     limit: '100',
     sort: '-createdAt',
   })
-  return data.docs.map(toBlogPost).filter((post) => post !== null)
+  return data.docs.map((post) => toBlogPost(post, baseUrl)).filter((post) => post !== null)
 }
 
 export async function getPostBySlug(slug: string): Promise<BlogPost | null> {
-  const data = await payloadFetch<PayloadList<PayloadPost>>('blog', {
+  const { data, baseUrl } = await payloadFetch<PayloadList<PayloadPost>>('blog', {
     depth: '1',
     limit: '1',
     'where[slug][equals]': slug,
   })
   const post = data.docs[0]
-  return post ? toBlogPost(post) : null
+  return post ? toBlogPost(post, baseUrl) : null
 }
 
 export async function getCategories(): Promise<BlogCategory[]> {
-  const data = await payloadFetch<PayloadList<PayloadCategory>>('blog-categories', {
+  const { data } = await payloadFetch<PayloadList<PayloadCategory>>('blog-categories', {
     depth: '0',
     limit: '100',
   })
   return data.docs.flatMap((category) =>
-    category.slug ? [{ id: category.slug, label: category.title || category.slug }] : [],
+    category.slug
+      ? [{ id: category.slug, label: category.title || titleFromSlug(category.slug), description: category.description || undefined }]
+      : [],
   )
 }

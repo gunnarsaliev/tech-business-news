@@ -8,6 +8,7 @@ export type BlogHeroData = {
 export type BlogCategory = {
   id: string
   label: string
+  description?: string
 }
 
 export type BlogArticle = {
