@@ -2,14 +2,18 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { ArticleCard } from '@/components/blog/article-card'
-import type { BlogCategory } from '@/components/blog/blog-types'
-import { Breadcrumbs } from '@/components/blog/breadcrumbs'
+import type { BlogAuthor, BlogCategory } from '@/components/blog/blog-types'
+import { type BreadcrumbItem, Breadcrumbs } from '@/components/blog/breadcrumbs'
 import { getHeadings, RichText } from '@/components/blog/rich-text'
 import { ShareButtons } from '@/components/blog/share-buttons'
 import { TableOfContents } from '@/components/blog/table-of-contents'
 import { Blogpost1 } from '@/components/blogpost1'
+import { JsonLd } from '@/components/json-ld'
+import { authorNames, markdownPath } from '@/lib/feeds'
 import { type BlogPost, getCategories, getPostBySlug, getPosts } from '@/lib/payload'
 import { categoryPath, postPath } from '@/lib/routes'
+import { DEFAULT_SOCIAL_IMAGE, OPEN_GRAPH_DEFAULTS, SITE_NAME, socialImage } from '@/lib/site'
+import { articleSchema, breadcrumbSchema, collectionPageSchema, tagLabels } from '@/lib/structured-data'
 
 /**
  * Renders every content URL of the site:
@@ -56,23 +60,51 @@ export async function generateMetadata({ params }: ContentPageProps): Promise<Me
   if (!route) return {}
 
   if (route.type === 'category') {
+    const { category } = route
+    const path = categoryPath(category.id)
+    const description = category.description ?? `The latest ${category.label} stories from ${SITE_NAME}.`
     return {
-      title: route.category.label,
-      description: route.category.description,
-      alternates: { canonical: categoryPath(route.category.id) },
+      title: category.label,
+      description,
+      alternates: { canonical: path },
+      openGraph: { ...OPEN_GRAPH_DEFAULTS, type: 'website', url: path, title: category.label, description, images: [DEFAULT_SOCIAL_IMAGE] },
+      twitter: { card: 'summary_large_image', title: category.label, description, images: [DEFAULT_SOCIAL_IMAGE] },
     }
   }
 
-  const { post } = route
+  const { post, categories } = route
+  const path = postPath(post)
+  const section = categories.find((item) => item.id === post.categoryId)?.label
+  const image = post.image ? socialImage(post.image, post.imageAlt) : DEFAULT_SOCIAL_IMAGE
+  const authors: BlogAuthor[] = post.authors.length ? post.authors : [{ name: authorNames(post) }]
   return {
     title: post.metaTitle ?? post.title,
     description: post.summary,
-    alternates: { canonical: postPath(post) },
+    authors: authors.map((author) => ({ name: author.name, url: author.url })),
+    keywords: tagLabels(post, categories),
+    alternates: {
+      canonical: path,
+      // Clean Markdown copy of the article for LLMs and AI agents.
+      types: { 'text/markdown': markdownPath(post) },
+    },
     openGraph: {
+      ...OPEN_GRAPH_DEFAULTS,
+      type: 'article',
+      url: path,
       title: post.title,
       description: post.summary,
-      type: 'article',
-      images: post.image ? [{ url: post.image, alt: post.imageAlt }] : undefined,
+      publishedTime: post.publishedAt,
+      modifiedTime: post.updatedAt,
+      authors: authors.map((author) => author.name),
+      section,
+      tags: tagLabels(post, categories),
+      images: [image],
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title: post.title,
+      description: post.summary,
+      images: [image],
     },
   }
 }
@@ -102,10 +134,14 @@ export default async function ContentPage({ params }: ContentPageProps) {
 
 async function CategoryView({ category }: { category: BlogCategory }) {
   const posts = (await getPosts()).filter((post) => post.tags.includes(category.id))
+  const path = categoryPath(category.id)
+  const breadcrumbs: BreadcrumbItem[] = [{ label: 'Home', href: '/' }, { label: category.label }]
 
   return (
     <section aria-labelledby="category-heading" className="px-4 pb-12 pt-8 sm:px-6 md:pt-10 lg:px-7">
-      <Breadcrumbs items={[{ label: 'Home', href: '/' }, { label: category.label }]} />
+      <JsonLd data={collectionPageSchema(category, path, posts)} />
+      <JsonLd data={breadcrumbSchema(breadcrumbs, path)} />
+      <Breadcrumbs items={breadcrumbs} />
 
       <header className="mt-8 max-w-3xl">
         <h1 className="text-4xl font-semibold tracking-[-0.035em] text-pretty text-slate-900 md:text-5xl" id="category-heading">
@@ -136,22 +172,27 @@ async function PostView({ post, categories }: { post: BlogPost; categories: Blog
     ...others.filter((item) => item.categoryId === post.categoryId),
     ...others.filter((item) => item.categoryId !== post.categoryId),
   ].slice(0, RELATED_POSTS)
+  const breadcrumbs: BreadcrumbItem[] = [
+    { label: 'Home', href: '/' },
+    ...(category ? [{ label: category.label, href: categoryPath(category.id) }] : []),
+    { label: post.title },
+  ]
 
   return (
     <>
+      <JsonLd data={articleSchema(post, categories)} />
+      <JsonLd data={breadcrumbSchema(breadcrumbs, postPath(post))} />
       <article className="px-4 pb-12 pt-8 sm:px-6 md:pt-10 lg:px-7">
-        <Breadcrumbs
-          items={[
-            { label: 'Home', href: '/' },
-            ...(category ? [{ label: category.label, href: categoryPath(category.id) }] : []),
-            { label: post.title },
-          ]}
-        />
+        <Breadcrumbs items={breadcrumbs} />
 
         <Blogpost1
           body={post.content && <RichText root={post.content} />}
+          bylines={post.authors.length ? post.authors : [{ name: authorNames(post) }]}
           className="pb-0 pt-8"
-          date={`${post.date} · ${post.readTime}`}
+          date={post.date}
+          dateSuffix={post.readTime}
+          publishedAt={post.publishedAt}
+          updatedAt={post.updatedAt}
           datePrefix={category ? `${category.label} ·` : undefined}
           description={post.summary}
           image={post.image ? { src: post.image, alt: post.imageAlt } : undefined}

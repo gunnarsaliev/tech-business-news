@@ -198,8 +198,11 @@ function LatestNews({ stories }: { stories: Story[] }) {
 }
 
 export default function InfraTrendsHome({
+  siteName,
   stories,
 }: {
+  /** The page's h1; visually hidden because the header already shows the brand. */
+  siteName: string
   /** Newest first. */
   stories: Story[]
 }) {
@@ -209,6 +212,7 @@ export default function InfraTrendsHome({
 
   return (
     <main className="flex-1 bg-white text-slate-950">
+      <h1 className="sr-only">{siteName}: latest technology and business news</h1>
       <div className="mx-auto w-full max-w-[1280px]">
         <div className="px-3.5 pb-7 pt-2.5 sm:px-6 sm:pb-9 sm:pt-3 lg:px-7">
           {hero ? (

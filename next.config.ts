@@ -20,6 +20,12 @@ const nextConfig: NextConfig = {
     // Needed only while a CMS runs on this machine.
     dangerouslyAllowLocalIP: isLocalPayload,
   },
+  async rewrites() {
+    return {
+      // Checked before pages, so /<category>/<post>.md reaches the Markdown handler, not the catch-all page.
+      beforeFiles: [{ source: '/:path+.md', destination: '/api/md/:path+' }],
+    }
+  },
 }
 
 export default nextConfig

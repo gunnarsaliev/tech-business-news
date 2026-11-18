@@ -1,6 +1,16 @@
+import type { Metadata } from 'next'
 import InfraTrendsHome, { type Story } from '@/components/infra-trends-home'
 import { getCategories, getPosts } from '@/lib/payload'
 import { postPath } from '@/lib/routes'
+import { OPEN_GRAPH_DEFAULTS, SITE_NAME } from '@/lib/site'
+
+export const metadata: Metadata = {
+  alternates: {
+    canonical: '/',
+    types: { 'application/rss+xml': [{ url: '/feed.xml', title: `${SITE_NAME} RSS feed` }] },
+  },
+  openGraph: { ...OPEN_GRAPH_DEFAULTS, type: 'website', url: '/' },
+}
 
 export default async function Page() {
   let stories: Story[] = []
@@ -26,5 +36,5 @@ export default async function Page() {
     console.error(error)
   }
 
-  return <InfraTrendsHome stories={stories} />
+  return <InfraTrendsHome siteName={SITE_NAME} stories={stories} />
 }
