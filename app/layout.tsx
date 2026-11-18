@@ -1,6 +1,9 @@
 import { Analytics } from '@vercel/analytics/next'
+import { SpeedInsights } from '@vercel/speed-insights/next'
 import type { Metadata, Viewport } from 'next'
 import { Geist } from 'next/font/google'
+import type { BlogCategory } from '@/components/blog/blog-types'
+import { CategoryIdsProvider } from '@/components/category-ids-provider'
 import { JsonLd } from '@/components/json-ld'
 import { SiteFooter } from '@/components/site-footer'
 import { type NavItem, SiteHeader } from '@/components/site-header'
@@ -46,10 +49,9 @@ export const viewport: Viewport = {
   themeColor: '#ffffff',
 }
 
-async function getNavItems(): Promise<NavItem[]> {
+async function getSafeCategories(): Promise<BlogCategory[]> {
   try {
-    const categories = await getCategories()
-    return categories.slice(0, MAX_NAV_ITEMS).map((category) => ({ label: category.label, href: categoryPath(category.id) }))
+    return await getCategories()
   } catch (error) {
     // The header still renders, without categories, while the CMS is unreachable.
     console.error(error)
@@ -62,16 +64,25 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode
 }>) {
-  const navItems = await getNavItems()
+  const categories = await getSafeCategories()
+  const navItems: NavItem[] = categories
+    .slice(0, MAX_NAV_ITEMS)
+    .map((category) => ({ label: category.label, href: categoryPath(category.id) }))
 
   return (
-    <html lang={SITE_LANGUAGE} id="top" className={`light ${geist.variable}`}>
+    <html lang={SITE_LANGUAGE} id="top" data-scroll-behavior="smooth" className={`light ${geist.variable}`}>
       <body className="flex min-h-screen flex-col antialiased">
         <JsonLd data={siteSchema()} />
         <SiteHeader items={navItems} siteName={SITE_NAME} />
-        {children}
+        <CategoryIdsProvider ids={categories.map((category) => category.id)}>{children}</CategoryIdsProvider>
         <SiteFooter items={navItems} siteName={SITE_NAME} />
-        {process.env.NODE_ENV === 'production' && <Analytics />}
+        {process.env.NODE_ENV === 'production' && (
+          <>
+            <Analytics />
+            {/* Real-user Core Web Vitals (LCP, INP, CLS) in the Vercel dashboard. */}
+            <SpeedInsights />
+          </>
+        )}
       </body>
     </html>
   )

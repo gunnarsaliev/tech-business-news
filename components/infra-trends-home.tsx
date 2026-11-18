@@ -44,7 +44,9 @@ function HeroStory({ story }: { story: Story }) {
         src={story.image}
         alt={story.imageAlt}
         fill
-        priority
+        // The hero image is the Largest Contentful Paint: fetch it first instead of lazily.
+        loading="eager"
+        fetchPriority="high"
         sizes="(max-width: 1023px) 100vw, 66vw"
         className="object-cover object-center"
       />
@@ -131,7 +133,7 @@ function LatestNews({ stories }: { stories: Story[] }) {
   }
 
   return (
-    <section id="latest" aria-labelledby="latest-heading" className="pt-8 sm:pt-9 lg:pt-10">
+    <section id="latest" aria-labelledby="latest-heading" className="scroll-mt-24 pt-8 sm:pt-9 lg:pt-10">
       <div className="mb-5 flex items-center justify-between gap-4 sm:mb-6">
         <div>
           <p className="mb-1 text-[9px] font-medium uppercase tracking-[0.18em] text-slate-500 sm:hidden">The latest</p>

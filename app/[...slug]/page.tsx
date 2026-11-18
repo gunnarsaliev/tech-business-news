@@ -11,7 +11,7 @@ import { Blogpost1 } from '@/components/blogpost1'
 import { JsonLd } from '@/components/json-ld'
 import { authorNames, markdownPath } from '@/lib/feeds'
 import { type BlogPost, getCategories, getPostBySlug, getPosts } from '@/lib/payload'
-import { categoryPath, postPath } from '@/lib/routes'
+import { categoryPath, ogImagePath, postPath } from '@/lib/routes'
 import { DEFAULT_SOCIAL_IMAGE, OPEN_GRAPH_DEFAULTS, SITE_NAME, socialImage } from '@/lib/site'
 import { articleSchema, breadcrumbSchema, collectionPageSchema, tagLabels } from '@/lib/structured-data'
 
@@ -75,7 +75,11 @@ export async function generateMetadata({ params }: ContentPageProps): Promise<Me
   const { post, categories } = route
   const path = postPath(post)
   const section = categories.find((item) => item.id === post.categoryId)?.label
-  const image = post.image ? socialImage(post.image, post.imageAlt) : DEFAULT_SOCIAL_IMAGE
+  // Stock fallback photos say nothing about the story, so those posts share a generated title card instead.
+  const image =
+    post.hasOwnImage && post.image
+      ? socialImage(post.image, post.imageAlt)
+      : { url: ogImagePath(post), width: 1200, height: 630, alt: post.title }
   const authors: BlogAuthor[] = post.authors.length ? post.authors : [{ name: authorNames(post) }]
   return {
     title: post.metaTitle ?? post.title,
@@ -223,7 +227,7 @@ async function PostView({ post, categories }: { post: BlogPost; categories: Blog
       </article>
 
       {related.length > 0 && (
-        <section aria-labelledby="related-stories-heading" className="border-t border-slate-100 px-4 py-12 sm:px-6 lg:px-7">
+        <section aria-labelledby="related-stories-heading" className="content-auto border-t border-slate-100 px-4 py-12 sm:px-6 lg:px-7">
           <h2 className="text-2xl font-semibold tracking-[-0.035em] text-slate-900" id="related-stories-heading">
             More stories for you
           </h2>
