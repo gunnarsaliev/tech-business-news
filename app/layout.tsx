@@ -2,12 +2,15 @@ import { Analytics } from '@vercel/analytics/next'
 import { SpeedInsights } from '@vercel/speed-insights/next'
 import type { Metadata, Viewport } from 'next'
 import { Geist } from 'next/font/google'
+import Script from 'next/script'
 import type { BlogCategory } from '@/components/blog/blog-types'
 import { CategoryIdsProvider } from '@/components/category-ids-provider'
+import { CookieConsentBanner } from '@/components/cookie-consent'
 import { JsonLd } from '@/components/json-ld'
 import { SiteFooter } from '@/components/site-footer'
 import { type NavItem, SiteHeader } from '@/components/site-header'
 import { getCategories } from '@/lib/payload'
+import { CONSENT_DEFAULTS_SCRIPT, GTM_ID, gtmScript } from '@/lib/consent'
 import { categoryPath } from '@/lib/routes'
 import { IS_INDEXABLE, OPEN_GRAPH_DEFAULTS, SITE_DESCRIPTION, SITE_LANGUAGE, SITE_NAME, SITE_TAGLINE, SITE_URL } from '@/lib/site'
 import { siteSchema } from '@/lib/structured-data'
@@ -72,12 +75,33 @@ export default async function RootLayout({
   return (
     <html lang={SITE_LANGUAGE} id="top" data-scroll-behavior="smooth" className={`light ${geist.variable}`}>
       <body className="flex min-h-screen flex-col antialiased">
+        {/* Consent Mode defaults (all optional storage denied) must run before any Google tag. */}
+        <Script id="consent-defaults" strategy="beforeInteractive">
+          {CONSENT_DEFAULTS_SCRIPT}
+        </Script>
+        {process.env.NODE_ENV === 'production' && GTM_ID && (
+          <noscript>
+            <iframe
+              src={`https://www.googletagmanager.com/ns.html?id=${encodeURIComponent(GTM_ID)}`}
+              title="Google Tag Manager"
+              height="0"
+              width="0"
+              style={{ display: 'none', visibility: 'hidden' }}
+            />
+          </noscript>
+        )}
         <JsonLd data={siteSchema()} />
         <SiteHeader items={navItems} siteName={SITE_NAME} />
         <CategoryIdsProvider ids={categories.map((category) => category.id)}>{children}</CategoryIdsProvider>
         <SiteFooter items={navItems} siteName={SITE_NAME} />
+        <CookieConsentBanner />
         {process.env.NODE_ENV === 'production' && (
           <>
+            {GTM_ID && (
+              <Script id="gtm" strategy="afterInteractive">
+                {gtmScript(GTM_ID)}
+              </Script>
+            )}
             <Analytics />
             {/* Real-user Core Web Vitals (LCP, INP, CLS) in the Vercel dashboard. */}
             <SpeedInsights />

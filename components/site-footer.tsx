@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { ArrowUp } from 'lucide-react'
+import { CookieSettingsButton } from '@/components/cookie-settings-button'
 import type { NavItem } from '@/components/site-header'
 import { TRUST_PAGES } from '@/lib/site'
 
@@ -49,6 +50,9 @@ export function SiteFooter({ siteName, items }: { siteName: string; items: NavIt
                     </Link>
                   </li>
                 ))}
+                <li>
+                  <CookieSettingsButton className="cursor-pointer transition-colors hover:text-slate-950" />
+                </li>
               </ul>
             </nav>
           </div>
