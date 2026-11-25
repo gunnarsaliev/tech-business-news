@@ -66,9 +66,13 @@ export const CONSENT_CATEGORIES: readonly ConsentCategory[] = [
   },
 ]
 
-const consentDefaults = Object.fromEntries(
-  CONSENT_CATEGORIES.map((category) => [category.id, category.necessary ? 'granted' : 'denied']),
-)
+const consentDefaults = {
+  ...Object.fromEntries(
+    CONSENT_CATEGORIES.map((category) => [category.id, category.necessary ? 'granted' : 'denied']),
+  ),
+  // Must be a key of the consent object: GTM rejects the whole command if it's passed as a separate argument.
+  wait_for_update: 500,
+}
 
 /**
  * Runs before any Google tag: sets up the dataLayer and the `gtag` helper, and denies every optional consent type
@@ -78,7 +82,7 @@ export const CONSENT_DEFAULTS_SCRIPT = `
 window.dataLayer = window.dataLayer || [];
 function gtag(){dataLayer.push(arguments);}
 window.gtag = gtag;
-gtag('consent', 'default', ${JSON.stringify(consentDefaults)}, { wait_for_update: 500 });
+gtag('consent', 'default', ${JSON.stringify(consentDefaults)});
 gtag('set', 'ads_data_redaction', true);
 `.trim()
 
